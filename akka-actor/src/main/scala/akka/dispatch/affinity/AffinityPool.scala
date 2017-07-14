@@ -32,14 +32,16 @@ import scala.util.control.NonFatal
 @ApiMayChange
 private[affinity] object AffinityPool {
   type PoolState = Int
+  // PoolState: needs to be initialized
+  final val Uninitialized = 0
   // PoolState: accepts new tasks and processes tasks that are enqueued
-  final val Running = 0
+  final val Running = 1
   // PoolState: does not accept new tasks, processes tasks that are in the queue
-  final val ShuttingDown = 1
+  final val ShuttingDown = 2
   // PoolState: does not accept new tasks, does not process tasks in queue
-  final val ShutDown = 2
+  final val ShutDown = 3
   // PoolState: all threads have been stopped, does not process tasks and does not accept new ones
-  final val Terminated = 3
+  final val Terminated = 4
 
   // Method handle to JDK9+ onSpinWait method
   private val onSpinWaitMethodHandle =
@@ -141,7 +143,7 @@ private[akka] class AffinityPool(
   private val terminationCondition = bookKeepingLock.newCondition()
 
   // indicates the current state of the pool
-  @volatile final private var poolState: PoolState = Running
+  @volatile final private var poolState: PoolState = Uninitialized
 
   private final val workQueues = Array.fill(parallelism)(new BoundedAffinityTaskQueue(affinityGroupSize))
   private final val workers = mutable.Set[AffinityPoolWorker]()
@@ -190,10 +192,16 @@ private[akka] class AffinityPool(
     workQueues(workQueueIndex)
   }
 
+  private def initialize(): Unit =
+    locked {
+      if (poolState == Uninitialized) {
+        poolState = Running
+        workQueues.foreach(q ⇒ addWorker(workers, q))
+      }
+    }
+
   //fires up initial workers
-  locked {
-    workQueues.foreach(q ⇒ addWorker(workers, q))
-  }
+  initialize()
 
   private def addWorker(workers: mutable.Set[AffinityPoolWorker], q: BoundedAffinityTaskQueue): Unit = {
     locked {
@@ -230,7 +238,7 @@ private[akka] class AffinityPool(
 
   override def execute(command: Runnable): Unit = {
     val queue = getQueueForRunnable(command) // Will throw NPE if command is null
-    if (poolState != Running || !queue.add(command))
+    if (poolState >= ShuttingDown || !queue.add(command))
       rejectionHandler.reject(command, this)
   }
 
@@ -307,6 +315,7 @@ private[akka] class AffinityPool(
       @tailrec def runLoop(): Unit =
         if (!Thread.interrupted()) {
           (poolState: @switch) match {
+            case Uninitialized ⇒ ()
             case Running ⇒
               executeNext()
               runLoop()
