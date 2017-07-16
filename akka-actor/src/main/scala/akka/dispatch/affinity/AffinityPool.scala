@@ -203,12 +203,11 @@ private[akka] class AffinityPool(
   //fires up initial workers
   initialize()
 
+  // WARNING: Only call while holding the bookKeepingLock
   private def addWorker(workers: mutable.Set[AffinityPoolWorker], q: BoundedAffinityTaskQueue): Unit = {
-    locked {
-      val worker = new AffinityPoolWorker(q, new IdleStrategy(idleCpuLevel))
-      workers.add(worker)
-      worker.startWorker()
-    }
+    val worker = new AffinityPoolWorker(q, new IdleStrategy(idleCpuLevel))
+    workers.add(worker)
+    worker.startWorker()
   }
 
   /**
