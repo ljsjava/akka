@@ -11,7 +11,7 @@ import java.util.Collections
 import java.util.concurrent.TimeUnit.MICROSECONDS
 import java.util.concurrent._
 import java.util.concurrent.atomic.{ AtomicInteger, AtomicReference }
-import java.util.concurrent.locks.{ Lock, LockSupport, ReentrantLock }
+import java.util.concurrent.locks.{ Lock, LockSupport }
 
 import akka.dispatch._
 import akka.util.Helpers.Requiring
@@ -22,8 +22,7 @@ import java.lang.Integer.reverseBytes
 
 import akka.annotation.InternalApi
 import akka.annotation.ApiMayChange
-import akka.util.ImmutableIntMap
-import akka.util.OptionVal
+import akka.util.{ ImmutableIntMap, OptionVal, ReentrantGuard }
 
 import scala.collection.mutable
 import scala.util.control.NonFatal
@@ -137,7 +136,7 @@ private[akka] class AffinityPool(
   // adding a worker. We want the creation of the worker, addition
   // to the set and starting to worker to be an atomic action. Using
   // a concurrent set would not give us that
-  private val bookKeepingLock = new ReentrantLock()
+  private val bookKeepingLock = new ReentrantGuard()
 
   // condition used for awaiting termination
   private val terminationCondition = bookKeepingLock.newCondition()
@@ -150,15 +149,6 @@ private[akka] class AffinityPool(
 
   // maps a runnable to an index of a worker queue
   private[this] final val runnableToWorkerQueueIndex = new AtomicReference(ImmutableIntMap.empty)
-
-  @inline private def locked[T](body: ⇒ T): T = {
-    bookKeepingLock.lock()
-    try {
-      body
-    } finally {
-      bookKeepingLock.unlock()
-    }
-  }
 
   private def getQueueForRunnable(command: Runnable): BoundedAffinityTaskQueue = {
     val runnableHash = command.hashCode()
@@ -193,7 +183,7 @@ private[akka] class AffinityPool(
   }
 
   private def initialize(): Unit =
-    locked {
+    bookKeepingLock.withGuard {
       if (poolState == Uninitialized) {
         poolState = Running
         workQueues.foreach(q ⇒ addWorker(workers, q))
@@ -225,7 +215,7 @@ private[akka] class AffinityPool(
    *
    */
   private def onWorkerExit(w: AffinityPoolWorker, abruptTermination: Boolean): Unit =
-    locked {
+    bookKeepingLock.withGuard {
       workers.remove(w)
       if (workers.isEmpty && !abruptTermination && poolState >= ShuttingDown) {
         poolState = ShutDown // transition to shutdown and try to transition to termination
@@ -250,7 +240,7 @@ private[akka] class AffinityPool(
       else awaitTermination(terminationCondition.awaitNanos(nanos))
     }
 
-    locked {
+    bookKeepingLock.withGuard {
       // need to hold the lock to avoid monitor exception
       awaitTermination(unit.toNanos(timeout))
     }
@@ -264,7 +254,7 @@ private[akka] class AffinityPool(
     }
 
   override def shutdownNow(): util.List[Runnable] =
-    locked {
+    bookKeepingLock.withGuard {
       poolState = ShutDown
       workers.foreach(_.stop())
       attemptPoolTermination()
@@ -273,7 +263,7 @@ private[akka] class AffinityPool(
     }
 
   override def shutdown(): Unit =
-    locked {
+    bookKeepingLock.withGuard {
       poolState = ShuttingDown
       // interrupts only idle workers.. so others can process their queues
       workers.foreach(_.stopIfIdle())
