@@ -66,7 +66,7 @@ private[affinity] object AffinityPool {
     private[this] val maxSpins = 1100 * idleCpuLevel - 1000
     private[this] val maxYields = 5 * idleCpuLevel
     private[this] val minParkPeriodNs = 1
-    private[this] val maxParkPeriodNs = MICROSECONDS.toNanos(280 - 30 * idleCpuLevel)
+    private[this] val maxParkPeriodNs = MICROSECONDS.toNanos(250 - ((80 * (idleCpuLevel - 1)) / 3))
 
     private[this] var state: IdleState = Initial
     private[this] var turns = 0L
