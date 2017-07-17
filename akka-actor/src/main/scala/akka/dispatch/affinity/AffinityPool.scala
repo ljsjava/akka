@@ -20,8 +20,10 @@ import com.typesafe.config.Config
 import scala.annotation.{ tailrec, switch }
 import java.lang.Integer.reverseBytes
 
+import scala.annotation.{ switch, tailrec }
 import akka.annotation.InternalApi
 import akka.annotation.ApiMayChange
+import akka.event.Logging
 import akka.util.{ ImmutableIntMap, OptionVal, ReentrantGuard }
 
 import scala.collection.mutable
@@ -118,9 +120,10 @@ private[affinity] object AffinityPool {
 @InternalApi
 @ApiMayChange
 private[akka] class AffinityPool(
+  id:                                  String,
   parallelism:                         Int,
   affinityGroupSize:                   Int,
-  tf:                                  ThreadFactory,
+  threadFactory:                       ThreadFactory,
   idleCpuLevel:                        Int,
   final val fairDistributionThreshold: Int,
   rejectionHandler:                    RejectionHandler)
@@ -148,7 +151,7 @@ private[akka] class AffinityPool(
   private final val workers = mutable.Set[AffinityPoolWorker]()
 
   // maps a runnable to an index of a worker queue
-  private[this] final val runnableToWorkerQueueIndex = new AtomicReference(ImmutableIntMap.empty)
+  private[this] final val hashCache = new AtomicReference(ImmutableIntMap.empty)
 
   private def getQueueForRunnable(command: Runnable): BoundedAffinityTaskQueue = {
     val runnableHash = command.hashCode()
@@ -162,16 +165,17 @@ private[akka] class AffinityPool(
       else {
         @tailrec
         def updateAndOrGetIndex(): Int = {
-          val prev = runnableToWorkerQueueIndex.get()
+          val prev = hashCache.get()
           if (prev.size > fairDistributionThreshold) indexFor(runnableHash)
           else {
             val existingIndex = prev.get(runnableHash)
             if (existingIndex >= 0) existingIndex
             else {
               val index = prev.size % parallelism
-              val next = prev.updated(runnableHash, index)
-              if (runnableToWorkerQueueIndex.compareAndSet(prev, next)) index // Successfully added key
-              else updateAndOrGetIndex() // Try again
+              if (hashCache.compareAndSet(prev, prev.updated(runnableHash, index)))
+                index // Successfully added key
+              else
+                updateAndOrGetIndex() // Try again
             }
           }
         }
@@ -274,11 +278,16 @@ private[akka] class AffinityPool(
 
   override def isTerminated: Boolean = poolState == Terminated
 
+  override def toString: String =
+    s"${Logging.simpleName(this)}(id = $id, parallelism = $parallelism, affinityGroupSize = $affinityGroupSize, threadFactory = $threadFactory, idleCpuLevel = $idleCpuLevel, fairDistributionThreshold = $fairDistributionThreshold, rejectionHandler = $rejectionHandler)"
+
   private final class AffinityPoolWorker( final val q: BoundedAffinityTaskQueue, final val idleStrategy: IdleStrategy) extends Runnable {
-    final val thread: Thread = tf.newThread(this)
+    final val thread: Thread = threadFactory.newThread(this)
     @volatile private[this] var executing: Boolean = false
 
-    def startWorker(): Unit = thread.start()
+    def startWorker(): Unit =
+      if (thread eq null) throw new IllegalStateException(s"Was not able to allocate worker thread for ${AffinityPool.this}")
+      else thread.start()
 
     override final def run(): Unit = {
 
@@ -367,7 +376,7 @@ private[akka] final class AffinityPoolConfigurator(config: Config, prerequisites
   override def createExecutorServiceFactory(id: String, threadFactory: ThreadFactory): ExecutorServiceFactory =
     new ExecutorServiceFactory {
       override def createExecutorService: ExecutorService =
-        new AffinityPool(poolSize, taskQueueSize, threadFactory, idleCpuLevel, fairDistributionThreshold, rejectionHandlerFactory.create())
+        new AffinityPool(id, poolSize, taskQueueSize, threadFactory, idleCpuLevel, fairDistributionThreshold, rejectionHandlerFactory.create())
     }
 }
 
