@@ -41,7 +41,7 @@ class ImmutableIntMapBench {
     if (n <= to) updateIfAbsent(n + by, by, to, in.updateIfAbsent(n, n))
     else in
 
-  val odd1000 = (1 to 1000).iterator.filter(_ % 2 == 1).foldLeft(ImmutableIntMap.empty)((l, i) => l.updated(i, i))
+  val odd1000 = (0 to 1000).iterator.filter(_ % 2 == 1).foldLeft(ImmutableIntMap.empty)((l, i) => l.updated(i, i))
 
   @Benchmark
   @OperationsPerInvocation(1)
@@ -64,31 +64,30 @@ class ImmutableIntMapBench {
   def add10000(): ImmutableIntMap = add(10000)
 
   @Benchmark
-  @OperationsPerInvocation(1000)
-  def contains1000(): Boolean = contains(n = 1, by = 2, to = odd1000.size, in = odd1000, b = false)
+  @OperationsPerInvocation(500)
+  def contains(): Boolean = contains(n = 1, by = 2, to = odd1000.size, in = odd1000, b = false)
 
   @Benchmark
-  @OperationsPerInvocation(1000)
-  def notcontains1000(): Boolean = contains(n = 0, by = 2, to = odd1000.size, in = odd1000, b = false)
+  @OperationsPerInvocation(500)
+  def notcontains(): Boolean = contains(n = 0, by = 2, to = odd1000.size, in = odd1000, b = false)
 
   @Benchmark
-  @OperationsPerInvocation(1000)
-  def get1000(): Int = get(n = 1, by = 2, to = odd1000.size, in = odd1000, b = Int.MinValue)
+  @OperationsPerInvocation(500)
+  def get(): Int = get(n = 1, by = 2, to = odd1000.size, in = odd1000, b = Int.MinValue)
 
   @Benchmark
-  @OperationsPerInvocation(1000)
-  def notget1000(): Int = get(n = 0, by = 2, to = odd1000.size, in = odd1000, b = Int.MinValue)
+  @OperationsPerInvocation(500)
+  def notget(): Int = get(n = 0, by = 2, to = odd1000.size, in = odd1000, b = Int.MinValue)
 
   @Benchmark
-  @OperationsPerInvocation(1000)
-  def updateNotAbsent1000(): ImmutableIntMap = updateIfAbsent(n = 1, by = 2, to = odd1000.size, in = odd1000)
+  @OperationsPerInvocation(500)
+  def updateNotAbsent(): ImmutableIntMap = updateIfAbsent(n = 1, by = 2, to = odd1000.size, in = odd1000)
 
   @Benchmark
-  @OperationsPerInvocation(1000)
-  def updateAbsent1000(): ImmutableIntMap = updateIfAbsent(n = 0, by = 2, to = odd1000.size, in = odd1000)
+  @OperationsPerInvocation(500)
+  def updateAbsent(): ImmutableIntMap = updateIfAbsent(n = 0, by = 2, to = odd1000.size, in = odd1000)
 
   @Benchmark
   @OperationsPerInvocation(10000)
-  def hashCode10000(): Int = hashCode(10000, odd1000, 0)
-
+  def hashcode(): Int = hashCode(10000, odd1000, 0)
 }
