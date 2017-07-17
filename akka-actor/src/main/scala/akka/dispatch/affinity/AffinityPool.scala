@@ -6,26 +6,22 @@ package akka.dispatch.affinity
 
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType.methodType
-import java.util
 import java.util.Collections
 import java.util.concurrent.TimeUnit.MICROSECONDS
 import java.util.concurrent._
 import java.util.concurrent.atomic.{ AtomicInteger, AtomicReference }
-import java.util.concurrent.locks.{ Lock, LockSupport }
+import java.util.concurrent.locks.LockSupport
+import java.lang.Integer.reverseBytes
 
 import akka.dispatch._
 import akka.util.Helpers.Requiring
 import com.typesafe.config.Config
 
-import scala.annotation.{ tailrec, switch }
-import java.lang.Integer.reverseBytes
-
-import scala.annotation.{ switch, tailrec }
-import akka.annotation.InternalApi
-import akka.annotation.ApiMayChange
+import akka.annotation.{ InternalApi, ApiMayChange }
 import akka.event.Logging
 import akka.util.{ ImmutableIntMap, OptionVal, ReentrantGuard }
 
+import scala.annotation.{ tailrec, switch }
 import scala.collection.mutable
 import scala.util.control.NonFatal
 
@@ -257,7 +253,7 @@ private[akka] class AffinityPool(
       terminationCondition.signalAll()
     }
 
-  override def shutdownNow(): util.List[Runnable] =
+  override def shutdownNow(): java.util.List[Runnable] =
     bookKeepingLock.withGuard {
       poolState = ShutDown
       workers.foreach(_.stop())
