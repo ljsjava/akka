@@ -59,7 +59,7 @@ private[affinity] object AffinityPool {
   final val Parking = 3
 
   // Following are auxiliary class and trait definitions
-  private final class IdleStrategy(val idleCpuLevel: Int) {
+  private final class IdleStrategy(idleCpuLevel: Int) {
 
     private[this] val maxSpins = 1100 * idleCpuLevel - 1000
     private[this] val maxYields = 5 * idleCpuLevel
