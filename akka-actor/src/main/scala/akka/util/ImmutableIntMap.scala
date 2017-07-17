@@ -30,9 +30,9 @@ import scala.annotation.tailrec
         val lohi = lo + hi // Since we search in half the array we don't need to div by 2 to find the real index of key
         val idx = lohi & ~1 // Since keys are in even slots, we get the key idx from lo+hi by removing the lowest bit if set (odd)
         val k = kvs(idx)
-        if (k < key) find((lohi >>> 1) + 1, hi)
-        else if (k > key) find(lo, (lohi >>> 1) - 1)
-        else idx
+        if (k == key) idx
+        else if (k < key) find((lohi >>> 1) + 1, hi)
+        else /* if (k > key) */ find(lo, (lohi >>> 1) - 1)
       } else ~(lo << 1) // same as -((lo*2)+1): Item should be placed, negated to indicate no match
 
     find(0, size - 1)
