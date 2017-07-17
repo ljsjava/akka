@@ -72,7 +72,10 @@ import scala.annotation.tailrec
       val i = indexForKey(key)
       if (i >= 0) {
         val valueIndex = i + 1
-        if (kvs(valueIndex) != value) update(value, valueIndex) else this // If no change no need to copy anything
+        if (kvs(valueIndex) != value)
+          update(value, valueIndex)
+        else
+          this // If no change no need to copy anything
       } else insert(key, value, i)
     } else new ImmutableIntMap(Array(key, value), 1)
 
