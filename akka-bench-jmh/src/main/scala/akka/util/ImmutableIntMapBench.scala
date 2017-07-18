@@ -41,6 +41,13 @@ class ImmutableIntMapBench {
     if (n <= to) updateIfAbsent(n + by, by, to, in.updateIfAbsent(n, n))
     else in
 
+  @tailrec private[this] final def getKey(iterations: Int, key: Int, from: ImmutableIntMap): ImmutableIntMap = {
+    if (iterations > 0 && key != Int.MinValue) {
+      val k = from.get(key)
+      getKey(iterations - 1, k, from)
+    } else from
+  }
+
   val odd1000 = (0 to 1000).iterator.filter(_ % 2 == 1).foldLeft(ImmutableIntMap.empty)((l, i) => l.updated(i, i))
 
   @Benchmark
@@ -90,4 +97,16 @@ class ImmutableIntMapBench {
   @Benchmark
   @OperationsPerInvocation(10000)
   def hashcode(): Int = hashCode(10000, odd1000, 0)
+
+  @Benchmark
+  @OperationsPerInvocation(1000)
+  def getMidElement(): ImmutableIntMap = getKey(iterations = 1000, key = 249, from = odd1000)
+
+  @Benchmark
+  @OperationsPerInvocation(1000)
+  def getLoElement(): ImmutableIntMap = getKey(iterations = 1000, key = 1, from = odd1000)
+
+  @Benchmark
+  @OperationsPerInvocation(1000)
+  def getHiElement(): ImmutableIntMap = getKey(iterations = 1000, key = 999, from = odd1000)
 }
