@@ -29,16 +29,18 @@ import scala.util.control.NonFatal
 @ApiMayChange
 private[affinity] object AffinityPool {
   type PoolState = Int
-  // PoolState: needs to be initialized
+  // PoolState: waiting to be initialized
   final val Uninitialized = 0
+  // PoolState: currently in the process of initializing
+  final val Initializing = 1
   // PoolState: accepts new tasks and processes tasks that are enqueued
-  final val Running = 1
+  final val Running = 2
   // PoolState: does not accept new tasks, processes tasks that are in the queue
-  final val ShuttingDown = 2
+  final val ShuttingDown = 3
   // PoolState: does not accept new tasks, does not process tasks in queue
-  final val ShutDown = 3
+  final val ShutDown = 4
   // PoolState: all threads have been stopped, does not process tasks and does not accept new ones
-  final val Terminated = 4
+  final val Terminated = 5
 
   // Method handle to JDK9+ onSpinWait method
   private val onSpinWaitMethodHandle =
@@ -182,22 +184,21 @@ private[akka] class AffinityPool(
     workQueues(workQueueIndex)
   }
 
-  private def initialize(): Unit =
+  def start(): this.type =
     bookKeepingLock.withGuard {
       if (poolState == Uninitialized) {
-        poolState = Running
+        poolState = Initializing
         workQueues.foreach(q ⇒ addWorker(workers, q))
+        poolState = Running
       }
+      this
     }
-
-  //fires up initial workers
-  initialize()
 
   // WARNING: Only call while holding the bookKeepingLock
   private def addWorker(workers: mutable.Set[AffinityPoolWorker], q: BoundedAffinityTaskQueue): Unit = {
     val worker = new AffinityPoolWorker(q, new IdleStrategy(idleCpuLevel))
     workers.add(worker)
-    worker.startWorker()
+    worker.start()
   }
 
   /**
@@ -217,12 +218,12 @@ private[akka] class AffinityPool(
   private def onWorkerExit(w: AffinityPoolWorker, abruptTermination: Boolean): Unit =
     bookKeepingLock.withGuard {
       workers.remove(w)
-      if (workers.isEmpty && !abruptTermination && poolState >= ShuttingDown) {
+      if (abruptTermination && poolState == Running)
+        addWorker(workers, w.q)
+      else if (workers.isEmpty && !abruptTermination && poolState >= ShuttingDown) {
         poolState = ShutDown // transition to shutdown and try to transition to termination
         attemptPoolTermination()
       }
-      if (abruptTermination && poolState == Running)
-        addWorker(workers, w.q)
     }
 
   override def execute(command: Runnable): Unit = {
@@ -277,17 +278,17 @@ private[akka] class AffinityPool(
   override def toString: String =
     s"${Logging.simpleName(this)}(id = $id, parallelism = $parallelism, affinityGroupSize = $affinityGroupSize, threadFactory = $threadFactory, idleCpuLevel = $idleCpuLevel, fairDistributionThreshold = $fairDistributionThreshold, rejectionHandler = $rejectionHandler)"
 
-  private final class AffinityPoolWorker( final val q: BoundedAffinityTaskQueue, final val idleStrategy: IdleStrategy) extends Runnable {
+  private[this] final class AffinityPoolWorker( final val q: BoundedAffinityTaskQueue, final val idleStrategy: IdleStrategy) extends Runnable {
     final val thread: Thread = threadFactory.newThread(this)
     @volatile private[this] var executing: Boolean = false
 
-    def startWorker(): Unit =
+    final def start(): Unit =
       if (thread eq null) throw new IllegalStateException(s"Was not able to allocate worker thread for ${AffinityPool.this}")
       else thread.start()
 
     override final def run(): Unit = {
-
-      def executeNext(): Unit = {
+      // Returns true if it executed something, false otherwise
+      def executeNext(): Boolean = {
         val c = q.poll()
         if (c ne null) {
           executing = true
@@ -296,8 +297,10 @@ private[akka] class AffinityPool(
           finally
             executing = false
           idleStrategy.reset()
+          true
         } else {
           idleStrategy.idle() // if not wait for a bit
+          false
         }
       }
 
@@ -310,16 +313,13 @@ private[akka] class AffinityPool(
         if (!Thread.interrupted()) {
           (poolState: @switch) match {
             case Uninitialized ⇒ ()
-            case Running ⇒
+            case Initializing | Running ⇒
               executeNext()
               runLoop()
             case ShuttingDown ⇒
-              if (!q.isEmpty)
-                executeNext()
-              else
-                ()
-            case ShutDown   ⇒ ()
-            case Terminated ⇒ ()
+              if (executeNext()) runLoop()
+              else ()
+            case ShutDown | Terminated ⇒ ()
           }
         }
 
@@ -372,7 +372,7 @@ private[akka] final class AffinityPoolConfigurator(config: Config, prerequisites
   override def createExecutorServiceFactory(id: String, threadFactory: ThreadFactory): ExecutorServiceFactory =
     new ExecutorServiceFactory {
       override def createExecutorService: ExecutorService =
-        new AffinityPool(id, poolSize, taskQueueSize, threadFactory, idleCpuLevel, fairDistributionThreshold, rejectionHandlerFactory.create())
+        new AffinityPool(id, poolSize, taskQueueSize, threadFactory, idleCpuLevel, fairDistributionThreshold, rejectionHandlerFactory.create()).start()
     }
 }
 
