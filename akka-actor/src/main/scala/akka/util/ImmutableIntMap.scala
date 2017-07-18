@@ -43,19 +43,18 @@ import scala.annotation.tailrec
    * Will return Int.MinValue if not found, so beware of storing Int.MinValues
    */
   final def get(key: Int): Int = {
+    // same binary search as in `indexforKey` replicated here for performance reasons.
     @tailrec def find(lo: Int, hi: Int): Int =
       if (lo <= hi) {
         val lohi = lo + hi // Since we search in half the array we don't need to div by 2 to find the real index of key
         val idx = lohi & ~1 // Since keys are in even slots, we get the key idx from lo+hi by removing the lowest bit if set (odd)
         val k = kvs(idx)
-        if (k == key) kvs(idx + 1)
+        if (k == key) kvs(lohi | 1) // lohi, if odd, already points to the value-index, if even, we set the lowest bit to add 1
         else if (k < key) find((lohi >>> 1) + 1, hi)
         else /* if (k > key) */ find(lo, (lohi >>> 1) - 1)
       } else Int.MinValue
 
     find(0, size - 1)
-    //val i = indexForKey(key)
-    //if (i >= 0) kvs(i + 1) else Int.MinValue
   }
 
   /**
