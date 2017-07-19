@@ -162,23 +162,20 @@ private[akka] class AffinityPool(
         indexFor(runnableHash)
       else {
         @tailrec
-        def updateAndOrGetIndex(): Int = {
-          val prev = hashCache.get()
-          if (prev.size > fairDistributionThreshold) indexFor(runnableHash)
+        def cacheLookup(prev: ImmutableIntMap, hash: Int): Int = {
+          val existingIndex = prev.get(runnableHash)
+          if (existingIndex >= 0) existingIndex
+          else if (prev.size > fairDistributionThreshold) indexFor(hash)
           else {
-            val existingIndex = prev.get(runnableHash)
-            if (existingIndex >= 0) existingIndex
-            else {
-              val index = prev.size % parallelism
-              if (hashCache.compareAndSet(prev, prev.updated(runnableHash, index)))
-                index // Successfully added key
-              else
-                updateAndOrGetIndex() // Try again
-            }
+            val index = prev.size % parallelism
+            if (hashCache.compareAndSet(prev, prev.updated(runnableHash, index)))
+              index // Successfully added key
+            else
+              cacheLookup(hashCache.get(), hash) // Try again
           }
         }
 
-        updateAndOrGetIndex()
+        cacheLookup(hashCache.get(), runnableHash)
       }
 
     workQueues(workQueueIndex)
